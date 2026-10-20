@@ -1,0 +1,5 @@
+# 声音克隆 TTS（按需二选一）
+# CosyVoice2（默认）：先 clone third_party/CosyVoice，再 pip install -r third_party/CosyVoice/requirements.txt
+# OpenVoice V2（CPU 备选）：
+#   pip install git+https://github.com/myshell-ai/OpenVoice.git git+https://github.com/myshell-ai/MeloTTS.git && python -m unidic download
+# F5-TTS（权重非商用）：pip install f5-tts

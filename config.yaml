@@ -1,0 +1,41 @@
+# zh2en-voice 配置
+audio:
+  sample_rate: 16000
+  source: local          # local(本机麦克风) | web(浏览器/手机 WebSocket)
+  block_ms: 100
+vad:
+  backend: silero        # silero | energy(无模型调试)
+  model: models/silero_vad.onnx
+  min_silence_ms: 300
+  max_segment_s: 6.0
+asr:
+  backend: sherpa_onnx   # sherpa_onnx | funasr | mock
+  model_dir: models/sherpa-onnx-streaming-paraformer-bilingual-zh-en
+  num_threads: 4
+mt:
+  backend: llama_cpp     # llama_cpp(CPU) | openai_compat(vLLM/Ollama, GPU 推荐) | mock
+  llama_cpp:
+    model_path: models/qwen2.5-3b-instruct-q4_k_m.gguf   # CPU 备选；1.5B 更快
+    n_ctx: 2048
+    n_threads: 6
+  openai_compat:
+    base_url: http://localhost:8000/v1    # vLLM: Qwen/Qwen2.5-7B-Instruct（需 GPU ≥16GB）；Ollama: http://localhost:11434/v1
+    model: Qwen/Qwen2.5-7B-Instruct
+    api_key: EMPTY
+  temperature: 0.3
+  context_turns: 3
+tts:
+  # 硬性要求：必须使用用户本人克隆音色。预设音色仅在 debug_preset=true 时可用于调试。
+  backend: cosyvoice2    # cosyvoice2(默认, GPU 推荐) | openvoice_v2(CPU 备选) | f5_tts(非商用权重)
+  voice_profile: voices/me        # enroll_voice.py 生成
+  cosyvoice2:
+    repo_dir: third_party/CosyVoice
+    model_dir: models/CosyVoice2-0.5B
+    stream: true
+  openvoice_v2:
+    ckpt_dir: models/openvoice_v2
+  debug_preset: false
+  out_sample_rate: 24000
+server:
+  host: 0.0.0.0
+  port: 8765

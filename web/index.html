@@ -1,0 +1,23 @@
+<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>zh2en-voice</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:2em auto;padding:0 1em}button{font-size:1.4em;padding:.6em 1.2em}#log p{margin:.3em 0}</style>
+<h2>中文 → 英文（我的声音）</h2><button id="b">🎙 开始</button><div id="log"></div>
+<script>
+let ctx,ws,node,playT=0,meta=null;
+b.onclick=async()=>{
+  if(ws){ws.close();ws=null;b.textContent="🎙 开始";return}
+  ctx=new AudioContext();
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,channelCount:1}});
+  ws=new WebSocket((location.protocol=="https:"?"wss://":"ws://")+location.host+"/ws");ws.binaryType="arraybuffer";
+  ws.onmessage=e=>{
+    if(typeof e.data=="string"){meta=JSON.parse(e.data);log.insertAdjacentHTML("beforeend","<p>"+meta.text+"</p>");return}
+    const f=new Float32Array(e.data),buf=ctx.createBuffer(1,f.length,meta.sr);buf.copyToChannel(f,0);
+    const s=ctx.createBufferSource();s.buffer=buf;s.connect(ctx.destination);
+    playT=Math.max(playT,ctx.currentTime);s.start(playT);playT+=buf.duration};
+  const src=ctx.createMediaStreamSource(stream);node=ctx.createScriptProcessor(4096,1,1);
+  const ratio=ctx.sampleRate/16000;
+  node.onaudioprocess=e=>{if(!ws||ws.readyState!=1)return;const x=e.inputBuffer.getChannelData(0);
+    const n=Math.floor(x.length/ratio),o=new Int16Array(n);
+    for(let i=0;i<n;i++)o[i]=Math.max(-1,Math.min(1,x[Math.floor(i*ratio)]))*32767;ws.send(o.buffer)};
+  src.connect(node);node.connect(ctx.destination);b.textContent="⏹ 停止"};
+</script></html>

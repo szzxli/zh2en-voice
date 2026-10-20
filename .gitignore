@@ -1,0 +1,7 @@
+.venv/
+models/
+third_party/
+voices/*
+!voices/.gitkeep
+*.pem
+__pycache__/

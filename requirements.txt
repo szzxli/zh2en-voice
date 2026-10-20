@@ -1,0 +1,12 @@
+# 核心（CPU）
+numpy
+pyyaml
+soundfile
+sounddevice
+scipy
+aiohttp
+sherpa-onnx          # 流式 ASR + silero VAD
+llama-cpp-python     # CPU LLM（GGUF）
+openai               # vLLM / Ollama OpenAI 兼容接口
+noisereduce          # 样本采集降噪
+huggingface_hub
