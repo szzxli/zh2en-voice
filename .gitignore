@@ -5,3 +5,6 @@ voices/*
 !voices/.gitkeep
 *.pem
 __pycache__/
+.venv310/
+out*.wav
+out*.json

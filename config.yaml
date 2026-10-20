@@ -15,7 +15,7 @@ asr:
 mt:
   backend: llama_cpp     # llama_cpp(CPU) | openai_compat(vLLM/Ollama, GPU 推荐) | mock
   llama_cpp:
-    model_path: models/qwen2.5-3b-instruct-q4_k_m.gguf   # CPU 备选；1.5B 更快
+    model_path: models/qwen2.5-1.5b-instruct-q4_k_m.gguf   # CPU 默认；3B 质量更好但慢一倍
     n_ctx: 2048
     n_threads: 6
   openai_compat:
@@ -32,6 +32,7 @@ tts:
     repo_dir: third_party/CosyVoice
     model_dir: models/CosyVoice2-0.5B
     stream: true
+    num_threads: 8
   openvoice_v2:
     ckpt_dir: models/openvoice_v2
   debug_preset: false

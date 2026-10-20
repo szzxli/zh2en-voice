@@ -17,24 +17,27 @@ class VoiceProfile:
 class CosyVoice2TTS:
     """默认。CosyVoice2-0.5B（Apache-2.0），零样本跨语种克隆 + 双向流式，首包 ~150ms(GPU)。"""
     def __init__(self, cfg, profile: VoiceProfile):
-        import sys
+        import sys, types, importlib.util
+        if importlib.util.find_spec("pyworld") is None:  # pyworld 仅训练数据处理用，推理不需要；无编译器时打桩
+            sys.modules["pyworld"] = types.ModuleType("pyworld")
         sys.path += [cfg["repo_dir"], cfg["repo_dir"] + "/third_party/Matcha-TTS"]
+        import torch
+        if cfg.get("num_threads"):
+            torch.set_num_threads(int(cfg["num_threads"]))
         from cosyvoice.cli.cosyvoice import CosyVoice2
-        from cosyvoice.utils.file_utils import load_wav
         self.m = CosyVoice2(cfg["model_dir"], load_jit=False, load_trt=False, fp16=False)
         self.sr = self.m.sample_rate
-        self.prompt = load_wav(profile.ref_wav, 16000)
         self.stream_mode = cfg.get("stream", True)
-        # 预计算说话人特征，避免每句重复提取
+        self.set_profile(profile)
+
+    def set_profile(self, profile: VoiceProfile):
+        """预计算说话人特征（跨语种：不用参考转写，避免中文韵律带入英文）"""
+        self.prompt = profile.ref_wav
         self.spk_id = "user"
-        try:
-            self.m.add_zero_shot_spk("", self.prompt, self.spk_id)
-        except Exception:
-            self.spk_id = ""
+        self.m.add_zero_shot_spk("", self.prompt, self.spk_id)
+
     def synth(self, text):
-        # cross_lingual：不使用参考转写，避免中文 prompt 文本把口音带入英文
-        kw = {"zero_shot_spk_id": self.spk_id} if self.spk_id else {}
-        for out in self.m.inference_cross_lingual(text, self.prompt, stream=self.stream_mode, **kw):
+        for out in self.m.inference_cross_lingual(text, self.prompt, zero_shot_spk_id=self.spk_id, stream=self.stream_mode):
             yield out["tts_speech"].numpy().reshape(-1).astype(np.float32)
 
 class OpenVoiceV2TTS:
@@ -77,11 +80,14 @@ class MockCloneTTS:
     def synth(self, text):
         yield np.zeros(int(self.sr * 0.06 * len(text.split())), np.float32)
 
-def build_tts(cfg):
+def build_tts(cfg, profile=None):
     t = cfg["tts"]
     if t.get("debug_preset"):
         raise RuntimeError("debug_preset 仅供本地调试，请自行接入 Kokoro/Piper；正式输出必须为克隆音色。")
-    profile = VoiceProfile(t["voice_profile"])
+    profile = VoiceProfile(t["voice_profile"]) if profile is None else profile
     cls = {"cosyvoice2": CosyVoice2TTS, "openvoice_v2": OpenVoiceV2TTS, "f5_tts": F5TTS}.get(t["backend"], MockCloneTTS)
     sub = t.get(t["backend"], {})
-    return cls(sub, profile)
+    obj = cls(sub, profile)
+    if not hasattr(obj, "set_profile"):  # 其它后端：换档案时重建
+        obj.set_profile = lambda p, _c=cls, _s=sub, _o=obj: _o.__dict__.update(_c(_s, p).__dict__)
+    return obj

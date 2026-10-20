@@ -1,23 +1,70 @@
-<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f172a"><link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="zh2en"><link rel="apple-touch-icon" href="/icons/icon-192.png">
 <title>zh2en-voice</title>
-<style>body{font-family:sans-serif;max-width:640px;margin:2em auto;padding:0 1em}button{font-size:1.4em;padding:.6em 1.2em}#log p{margin:.3em 0}</style>
-<h2>中文 → 英文（我的声音）</h2><button id="b">🎙 开始</button><div id="log"></div>
+<style>
+:root{color-scheme:dark}body{margin:0;font-family:-apple-system,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;padding:env(safe-area-inset-top) 16px 24px}
+h1{font-size:1.2em;margin:16px 0}.card{background:#1e293b;border-radius:14px;padding:14px;margin:12px 0}
+.prompt{font-size:1.35em;line-height:1.5}.lbl{font-size:.8em;color:#94a3b8;margin-bottom:4px}
+button{width:100%;font-size:1.25em;padding:18px;border:0;border-radius:14px;background:#2563eb;color:#fff;margin-top:8px}
+button.rec{background:#dc2626}button.sec{background:#334155;font-size:1em;padding:12px}
+.lat{font-family:ui-monospace,monospace;font-size:.85em;white-space:pre-wrap}.tabs{display:flex;gap:8px}.tabs button{margin:0}
+#hint{color:#fbbf24;font-size:.9em}
+</style></head><body>
+<h1>🎙 中文 → 英文（用我的声音）</h1>
+<div class="tabs"><button class="sec" id="tDemo">单句 Demo</button><button class="sec" id="tLive">实时模式</button></div>
+<section id="demo">
+ <div class="card"><div class="lbl">请朗读（不同情绪更好）</div><div class="prompt" id="prompt">…</div>
+  <button class="sec" id="next">换一句</button></div>
+ <div id="hint"></div>
+ <button id="rec">按下开始录音</button>
+ <div class="card"><div class="lbl">识别（中文）</div><div id="zh">—</div></div>
+ <div class="card"><div class="lbl">英文（保留语气）</div><div id="en">—</div><audio id="au" controls style="width:100%;margin-top:8px"></audio></div>
+ <div class="card"><div class="lbl">各环节延迟</div><div class="lat" id="lat">—</div></div>
+</section>
+<section id="live" hidden><button id="liveBtn">🎙 开始实时翻译</button><div class="card" id="log"></div></section>
 <script>
-let ctx,ws,node,playT=0,meta=null;
-b.onclick=async()=>{
-  if(ws){ws.close();ws=null;b.textContent="🎙 开始";return}
-  ctx=new AudioContext();
-  const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,channelCount:1}});
+if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js");
+const $=id=>document.getElementById(id);
+tDemo.onclick=()=>{demo.hidden=false;live.hidden=true};tLive.onclick=()=>{demo.hidden=true;live.hidden=false};
+async function loadPrompt(){const r=await(await fetch("/api/prompt")).json();prompt.textContent=r.prompt;
+  hint.textContent=r.has_profile?"":"尚无声音档案：本次录音将同时作为你的克隆参考音色（请在安静环境、自然语气朗读）"}
+next.onclick=loadPrompt;loadPrompt();
+// 录音：16k PCM16；简单能量 VAD，静音 0.8s 自动结束；再次点击也可结束
+let ctx,stream,node,chunks=[],recording=false,lastVoice=0,started=0;
+function down(x,sr){const r=sr/16000,n=Math.floor(x.length/r),o=new Int16Array(n);for(let i=0;i<n;i++)o[i]=Math.max(-1,Math.min(1,x[Math.floor(i*r)]))*32767;return o}
+async function startRec(){ctx=ctx||new(window.AudioContext||window.webkitAudioContext)();await ctx.resume();
+  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:false,channelCount:1}});
+  const src=ctx.createMediaStreamSource(stream);node=ctx.createScriptProcessor(4096,1,1);chunks=[];recording=true;started=lastVoice=performance.now();let heard=false;
+  node.onaudioprocess=e=>{if(!recording)return;const x=e.inputBuffer.getChannelData(0);chunks.push(down(x,ctx.sampleRate));
+    let s=0;for(const v of x)s+=v*v;const rms=Math.sqrt(s/x.length),now=performance.now();
+    if(rms>0.015){lastVoice=now;heard=true}
+    if((heard&&now-lastVoice>800)||now-started>15000)stopRec()};
+  src.connect(node);node.connect(ctx.destination);rec.textContent="● 录音中…（停顿自动结束）";rec.classList.add("rec")}
+async function stopRec(){if(!recording)return;recording=false;node.disconnect();stream.getTracks().forEach(t=>t.stop());
+  rec.textContent="处理中…";rec.classList.remove("rec");rec.disabled=true;
+  const len=chunks.reduce((a,c)=>a+c.length,0),pcm=new Int16Array(len);let o=0;for(const c of chunks){pcm.set(c,o);o+=c.length}
+  const t0=performance.now();
+  try{const r=await fetch("/api/demo?prompt="+encodeURIComponent(prompt.textContent),{method:"POST",body:pcm.buffer});const j=await r.json();
+    zh.textContent=j.zh||j.error||"—";en.textContent=j.en||"—";
+    lat.textContent=Object.entries(j.latency_ms||{}).map(([k,v])=>k.padEnd(18)+v+" ms").join("\n")+"\n往返(含上传)".padEnd(18)+Math.round(performance.now()-t0)+" ms"+(j.rtf_tts?"\nTTS RTF            "+j.rtf_tts:"");
+    if(j.wav_b64){au.src="data:audio/wav;base64,"+j.wav_b64;au.play().catch(()=>{})}
+    if(j.enrolled)hint.textContent="✅ 已用本次录音建立你的声音档案"}
+  catch(e){zh.textContent="出错："+e}
+  rec.disabled=false;rec.textContent="按下开始录音"}
+rec.onclick=()=>recording?stopRec():startRec();
+// 实时模式（WebSocket 流式）
+let ws,lctx,lnode,playT=0,meta=null;
+liveBtn.onclick=async()=>{if(ws){ws.close();ws=null;liveBtn.textContent="🎙 开始实时翻译";return}
+  lctx=new(window.AudioContext||window.webkitAudioContext)();await lctx.resume();
+  const s=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,channelCount:1}});
   ws=new WebSocket((location.protocol=="https:"?"wss://":"ws://")+location.host+"/ws");ws.binaryType="arraybuffer";
-  ws.onmessage=e=>{
-    if(typeof e.data=="string"){meta=JSON.parse(e.data);log.insertAdjacentHTML("beforeend","<p>"+meta.text+"</p>");return}
-    const f=new Float32Array(e.data),buf=ctx.createBuffer(1,f.length,meta.sr);buf.copyToChannel(f,0);
-    const s=ctx.createBufferSource();s.buffer=buf;s.connect(ctx.destination);
-    playT=Math.max(playT,ctx.currentTime);s.start(playT);playT+=buf.duration};
-  const src=ctx.createMediaStreamSource(stream);node=ctx.createScriptProcessor(4096,1,1);
-  const ratio=ctx.sampleRate/16000;
-  node.onaudioprocess=e=>{if(!ws||ws.readyState!=1)return;const x=e.inputBuffer.getChannelData(0);
-    const n=Math.floor(x.length/ratio),o=new Int16Array(n);
-    for(let i=0;i<n;i++)o[i]=Math.max(-1,Math.min(1,x[Math.floor(i*ratio)]))*32767;ws.send(o.buffer)};
-  src.connect(node);node.connect(ctx.destination);b.textContent="⏹ 停止"};
-</script></html>
+  ws.onmessage=e=>{if(typeof e.data=="string"){meta=JSON.parse(e.data);log.insertAdjacentHTML("beforeend","<p>"+meta.text+"</p>");return}
+    const f=new Float32Array(e.data),b=lctx.createBuffer(1,f.length,meta.sr);b.copyToChannel(f,0);
+    const n=lctx.createBufferSource();n.buffer=b;n.connect(lctx.destination);playT=Math.max(playT,lctx.currentTime);n.start(playT);playT+=b.duration};
+  const src=lctx.createMediaStreamSource(s);lnode=lctx.createScriptProcessor(4096,1,1);
+  lnode.onaudioprocess=e=>{if(ws&&ws.readyState==1)ws.send(down(e.inputBuffer.getChannelData(0),lctx.sampleRate).buffer)};
+  src.connect(lnode);lnode.connect(lctx.destination);liveBtn.textContent="⏹ 停止"};
+</script></body></html>
